@@ -136,12 +136,32 @@ def _build_windows(feat_array: np.ndarray, seq_len: int) -> np.ndarray:
     return np.stack([feat_array[i: i + seq_len] for i in idx], axis=0).astype(np.float32)
 
 
+def fallback_embedding(window: np.ndarray,
+                       embedding_dim: int = EMBEDDING_DIM) -> np.ndarray:
+    """
+    BUG4_FIX: Geometrically meaningful fallback when LSTM is unavailable.
+
+    Normalizes each feature column to zero mean / unit std within the window,
+    flattens, zero-pads to embedding_dim, and L2-normalizes. Cosine similarity
+    on these embeddings reflects shape similarity regardless of feature scale.
+    """
+    col_means = window.mean(axis=0)
+    col_stds  = window.std(axis=0) + 1e-8
+    normed = (window - col_means) / col_stds
+    flat = normed.flatten().astype(np.float32)
+    emb = np.zeros(embedding_dim, dtype=np.float32)
+    n = min(len(flat), embedding_dim)
+    emb[:n] = flat[:n]
+    norm = np.linalg.norm(emb) + 1e-8
+    return emb / norm
+
+
 def train_autoencoder(feat_array: np.ndarray, seq_len: int,
                       device: str = "cpu",
                       outcome_returns: np.ndarray | None = None,
                       is_retrain: bool = False) -> "LSTMAutoencoder":
     windows = _build_windows(feat_array, seq_len)
-    min_windows = 10 + seq_len * 5
+    min_windows = max(8, seq_len * 2 + 4)  # BUG4_FIX: was 10+seq_len*5 (too high for early warmup)
     if len(windows) < min_windows:
         raise ValueError(f"Too few windows ({len(windows)}) for seq_len={seq_len}")
 

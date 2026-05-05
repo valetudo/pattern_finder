@@ -1,0 +1,269 @@
+[PERF] No GPU detected — using CPU. Install CUDA PyTorch for 5-10x speedup.
+[PERF] FAISS is ACTIVE — using approximate nearest neighbor search
+[data] Loaded 8372 rows from cache (data_cache_SPY.pkl)
+[data] Loaded VIX from cache: 9151 bars
+[calibration] WARNING: COSINE_SIMILARITY_THRESHOLD=0.75 may be too high. Calibration suggests 0.65. Auto-adjusting to 0.65.
+Walk-forward:   0%|          | 0/678 [00:00<?, ?day/s]Walk-forward:   0%|          | 1/678 [00:03<34:36,  3.07s/day]Walk-forward:   6%|5         | 38/678 [00:03<00:38, 16.76day/s]Walk-forward:   9%|8         | 60/678 [00:05<00:53, 11.53day/s]Walk-forward:  13%|#2        | 86/678 [00:08<00:57, 10.35day/s]Walk-forward:  17%|#7        | 116/678 [00:08<00:32, 17.32day/s]Walk-forward:  19%|#9        | 132/678 [00:12<00:53, 10.22day/s]Walk-forward:  24%|##3       | 162/678 [00:12<00:31, 16.46day/s]Walk-forward:  26%|##6       | 179/678 [00:16<00:52,  9.58day/s]Walk-forward:  31%|###       | 208/678 [00:16<00:31, 14.91day/s]Walk-forward:  33%|###3      | 225/678 [00:21<00:51,  8.85day/s]Walk-forward:  37%|###7      | 253/678 [00:28<01:12,  5.87day/s]Walk-forward:  43%|####3     | 294/678 [00:35<01:03,  6.10day/s]Walk-forward:  47%|####7     | 322/678 [00:35<00:41,  8.56day/s]Walk-forward:  50%|####9     | 338/678 [00:41<00:58,  5.81day/s]Walk-forward:  54%|#####4    | 367/678 [00:41<00:36,  8.64day/s]Walk-forward:  56%|#####6    | 382/678 [00:48<00:55,  5.30day/s]Walk-forward:  60%|######    | 410/678 [00:49<00:33,  8.02day/s]Walk-forward:  63%|######2   | 426/678 [00:57<00:52,  4.80day/s]Walk-forward:  67%|######6   | 453/678 [00:57<00:30,  7.28day/s]Walk-forward:  69%|######9   | 469/678 [01:05<00:47,  4.43day/s]Walk-forward:  73%|#######3  | 496/678 [01:05<00:26,  6.79day/s]Walk-forward:  76%|#######5  | 512/678 [01:15<00:41,  4.04day/s]Walk-forward:  79%|#######9  | 536/678 [01:15<00:23,  5.98day/s]Walk-forward:  81%|########1 | 551/678 [01:25<00:35,  3.60day/s]Walk-forward:  85%|########5 | 578/678 [01:25<00:17,  5.66day/s]Walk-forward:  88%|########7 | 594/678 [01:35<00:24,  3.46day/s]Walk-forward:  92%|#########1| 621/678 [01:35<00:10,  5.41day/s]Walk-forward:  94%|#########4| 640/678 [01:46<00:11,  3.44day/s]Walk-forward:  99%|#########8| 668/678 [01:46<00:01,  5.35day/s]Walk-forward: 100%|##########| 678/678 [01:57<00:00,  5.76day/s]
+[AE] Contrastive loss: 96 windows, 37 pos, 35 neg labels
+[FAISS] seq_len=2: index built with 96 vectors
+[AE] Contrastive loss: 95 windows, 36 pos, 35 neg labels
+[FAISS] seq_len=3: index built with 95 vectors
+[AE] Contrastive loss: 94 windows, 35 pos, 35 neg labels
+[FAISS] seq_len=4: index built with 94 vectors
+[AE] Contrastive loss: 93 windows, 34 pos, 35 neg labels
+[FAISS] seq_len=5: index built with 93 vectors
+[AE] Contrastive loss: 92 windows, 33 pos, 35 neg labels
+[FAISS] seq_len=6: index built with 92 vectors
+
+[bar 100] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :    0 (0%)
+  dtw_fail                 :    0 (0%)
+  regime_fail              :    0 (0%)
+  edge_fail                :    0 (0%)
+  meta_blocked             :    0 (0%)
+  traded                   :    4 (100%)
+
+[ETA] ~3.4 min remaining (0.309s/bar)
+[AE] Contrastive loss: 137 windows, 63 pos, 45 neg labels
+[FAISS] seq_len=2: index built with 137 vectors
+[AE] Contrastive loss: 136 windows, 62 pos, 45 neg labels
+[FAISS] seq_len=3: index built with 136 vectors
+[AE] Contrastive loss: 135 windows, 61 pos, 45 neg labels
+[FAISS] seq_len=4: index built with 135 vectors
+[AE] Contrastive loss: 134 windows, 60 pos, 45 neg labels
+[FAISS] seq_len=5: index built with 134 vectors
+[AE] Contrastive loss: 133 windows, 59 pos, 45 neg labels
+[FAISS] seq_len=6: index built with 133 vectors
+[AE] Contrastive loss: 181 windows, 82 pos, 57 neg labels
+[FAISS] seq_len=2: index built with 181 vectors
+[AE] Contrastive loss: 180 windows, 81 pos, 57 neg labels
+[FAISS] seq_len=3: index built with 180 vectors
+[AE] Contrastive loss: 179 windows, 80 pos, 57 neg labels
+[FAISS] seq_len=4: index built with 179 vectors
+[AE] Contrastive loss: 178 windows, 79 pos, 57 neg labels
+[FAISS] seq_len=5: index built with 178 vectors
+[AE] Contrastive loss: 177 windows, 78 pos, 57 neg labels
+[FAISS] seq_len=6: index built with 177 vectors
+
+[bar 200] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :    8 (8%)
+  dtw_fail                 :    0 (0%)
+  regime_fail              :   51 (49%)
+  edge_fail                :   30 (29%)
+  meta_blocked             :    0 (0%)
+  traded                   :   15 (14%)
+[AE] Contrastive loss: 223 windows, 102 pos, 65 neg labels
+[FAISS] seq_len=2: index built with 223 vectors
+[AE] Contrastive loss: 222 windows, 101 pos, 65 neg labels
+[FAISS] seq_len=3: index built with 222 vectors
+[AE] Contrastive loss: 221 windows, 100 pos, 65 neg labels
+[FAISS] seq_len=4: index built with 221 vectors
+[AE] Contrastive loss: 220 windows, 99 pos, 65 neg labels
+[FAISS] seq_len=5: index built with 220 vectors
+[AE] Contrastive loss: 219 windows, 98 pos, 65 neg labels
+[FAISS] seq_len=6: index built with 219 vectors
+[AE] Contrastive loss: 264 windows, 118 pos, 78 neg labels
+[FAISS] seq_len=2: index built with 264 vectors
+[AE] Contrastive loss: 263 windows, 117 pos, 78 neg labels
+[FAISS] seq_len=3: index built with 263 vectors
+[AE] Contrastive loss: 262 windows, 116 pos, 78 neg labels
+[FAISS] seq_len=4: index built with 262 vectors
+[AE] Contrastive loss: 261 windows, 115 pos, 78 neg labels
+[FAISS] seq_len=5: index built with 261 vectors
+[AE] Contrastive loss: 260 windows, 114 pos, 78 neg labels
+[FAISS] seq_len=6: index built with 260 vectors
+
+[bar 300] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :   22 (11%)
+  dtw_fail                 :   20 (10%)
+  regime_fail              :  111 (54%)
+  edge_fail                :   36 (18%)
+  meta_blocked             :    0 (0%)
+  traded                   :   15 (7%)
+[AE] Contrastive loss: 306 windows, 123 pos, 92 neg labels
+[FAISS] seq_len=2: index built with 306 vectors
+[AE] Contrastive loss: 305 windows, 122 pos, 92 neg labels
+[FAISS] seq_len=3: index built with 305 vectors
+[AE] Contrastive loss: 304 windows, 121 pos, 92 neg labels
+[FAISS] seq_len=4: index built with 304 vectors
+[AE] Contrastive loss: 303 windows, 120 pos, 92 neg labels
+[FAISS] seq_len=5: index built with 303 vectors
+[AE] Contrastive loss: 302 windows, 119 pos, 92 neg labels
+[FAISS] seq_len=6: index built with 302 vectors
+[AE] Contrastive loss: 348 windows, 144 pos, 102 neg labels
+[FAISS] seq_len=2: index built with 348 vectors
+[AE] Contrastive loss: 347 windows, 143 pos, 102 neg labels
+[FAISS] seq_len=3: index built with 347 vectors
+[AE] Contrastive loss: 346 windows, 142 pos, 102 neg labels
+[FAISS] seq_len=4: index built with 346 vectors
+[AE] Contrastive loss: 345 windows, 141 pos, 102 neg labels
+[FAISS] seq_len=5: index built with 345 vectors
+[AE] Contrastive loss: 344 windows, 140 pos, 102 neg labels
+[FAISS] seq_len=6: index built with 344 vectors
+[AE] Contrastive loss: 389 windows, 165 pos, 112 neg labels
+[FAISS] seq_len=2: index built with 389 vectors
+[AE] Contrastive loss: 388 windows, 164 pos, 112 neg labels
+[FAISS] seq_len=3: index built with 388 vectors
+[AE] Contrastive loss: 387 windows, 163 pos, 112 neg labels
+[FAISS] seq_len=4: index built with 387 vectors
+[AE] Contrastive loss: 386 windows, 162 pos, 112 neg labels
+[FAISS] seq_len=5: index built with 386 vectors
+[AE] Contrastive loss: 385 windows, 161 pos, 112 neg labels
+[FAISS] seq_len=6: index built with 385 vectors
+[MetaRanker] Trained: n=21, feat_dim=13, leaves=6
+
+[bar 400] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :   40 (13%)
+  dtw_fail                 :   44 (14%)
+  regime_fail              :  132 (43%)
+  edge_fail                :   67 (22%)
+  meta_blocked             :    0 (0%)
+  traded                   :   21 (7%)
+[AE] Contrastive loss: 433 windows, 180 pos, 128 neg labels
+[FAISS] seq_len=2: index built with 433 vectors
+[AE] Contrastive loss: 432 windows, 179 pos, 128 neg labels
+[FAISS] seq_len=3: index built with 432 vectors
+[AE] Contrastive loss: 431 windows, 178 pos, 128 neg labels
+[FAISS] seq_len=4: index built with 431 vectors
+[AE] Contrastive loss: 430 windows, 177 pos, 128 neg labels
+[FAISS] seq_len=5: index built with 430 vectors
+[AE] Contrastive loss: 429 windows, 176 pos, 128 neg labels
+[FAISS] seq_len=6: index built with 429 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+[AE] Contrastive loss: 474 windows, 199 pos, 141 neg labels
+[FAISS] seq_len=2: index built with 474 vectors
+[AE] Contrastive loss: 473 windows, 198 pos, 141 neg labels
+[FAISS] seq_len=3: index built with 473 vectors
+[AE] Contrastive loss: 472 windows, 197 pos, 141 neg labels
+[FAISS] seq_len=4: index built with 472 vectors
+[AE] Contrastive loss: 471 windows, 196 pos, 141 neg labels
+[FAISS] seq_len=5: index built with 471 vectors
+[AE] Contrastive loss: 470 windows, 195 pos, 141 neg labels
+[FAISS] seq_len=6: index built with 470 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+
+[bar 500] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :   44 (11%)
+  dtw_fail                 :   81 (20%)
+  regime_fail              :  166 (41%)
+  edge_fail                :   90 (22%)
+  meta_blocked             :    0 (0%)
+  traded                   :   23 (6%)
+[AE] Contrastive loss: 515 windows, 224 pos, 146 neg labels
+[FAISS] seq_len=2: index built with 515 vectors
+[AE] Contrastive loss: 514 windows, 223 pos, 146 neg labels
+[FAISS] seq_len=3: index built with 514 vectors
+[AE] Contrastive loss: 513 windows, 222 pos, 146 neg labels
+[FAISS] seq_len=4: index built with 513 vectors
+[AE] Contrastive loss: 512 windows, 221 pos, 146 neg labels
+[FAISS] seq_len=5: index built with 512 vectors
+[AE] Contrastive loss: 511 windows, 220 pos, 146 neg labels
+[FAISS] seq_len=6: index built with 511 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+[AE] Contrastive loss: 558 windows, 254 pos, 149 neg labels
+[FAISS] seq_len=2: index built with 558 vectors
+[AE] Contrastive loss: 557 windows, 253 pos, 149 neg labels
+[FAISS] seq_len=3: index built with 557 vectors
+[AE] Contrastive loss: 556 windows, 252 pos, 149 neg labels
+[FAISS] seq_len=4: index built with 556 vectors
+[AE] Contrastive loss: 555 windows, 251 pos, 149 neg labels
+[FAISS] seq_len=5: index built with 555 vectors
+[AE] Contrastive loss: 554 windows, 249 pos, 149 neg labels
+[FAISS] seq_len=6: index built with 554 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+
+[bar 600] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :   53 (11%)
+  dtw_fail                 :  123 (24%)
+  regime_fail              :  185 (37%)
+  edge_fail                :  120 (24%)
+  meta_blocked             :    0 (0%)
+  traded                   :   23 (5%)
+[AE] Contrastive loss: 600 windows, 279 pos, 157 neg labels
+[FAISS] seq_len=2: index built with 600 vectors
+[AE] Contrastive loss: 599 windows, 278 pos, 157 neg labels
+[FAISS] seq_len=3: index built with 599 vectors
+[AE] Contrastive loss: 598 windows, 277 pos, 157 neg labels
+[FAISS] seq_len=4: index built with 598 vectors
+[AE] Contrastive loss: 597 windows, 276 pos, 157 neg labels
+[FAISS] seq_len=5: index built with 597 vectors
+[AE] Contrastive loss: 596 windows, 275 pos, 157 neg labels
+[FAISS] seq_len=6: index built with 596 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+[AE] Contrastive loss: 641 windows, 302 pos, 163 neg labels
+[FAISS] seq_len=2: index built with 641 vectors
+[AE] Contrastive loss: 640 windows, 301 pos, 163 neg labels
+[FAISS] seq_len=3: index built with 640 vectors
+[AE] Contrastive loss: 639 windows, 300 pos, 163 neg labels
+[FAISS] seq_len=4: index built with 639 vectors
+[AE] Contrastive loss: 638 windows, 299 pos, 163 neg labels
+[FAISS] seq_len=5: index built with 638 vectors
+[AE] Contrastive loss: 637 windows, 298 pos, 163 neg labels
+[FAISS] seq_len=6: index built with 637 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+[AE] Contrastive loss: 685 windows, 324 pos, 175 neg labels
+[FAISS] seq_len=2: index built with 685 vectors
+[AE] Contrastive loss: 684 windows, 323 pos, 175 neg labels
+[FAISS] seq_len=3: index built with 684 vectors
+[AE] Contrastive loss: 683 windows, 322 pos, 175 neg labels
+[FAISS] seq_len=4: index built with 683 vectors
+[AE] Contrastive loss: 682 windows, 321 pos, 175 neg labels
+[FAISS] seq_len=5: index built with 682 vectors
+[AE] Contrastive loss: 681 windows, 320 pos, 175 neg labels
+[FAISS] seq_len=6: index built with 681 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+
+[bar 700] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :    0 (0%)
+  directional_fail         :   61 (10%)
+  dtw_fail                 :  149 (25%)
+  regime_fail              :  228 (38%)
+  edge_fail                :  143 (24%)
+  meta_blocked             :    0 (0%)
+  traded                   :   23 (4%)
+[AE] Contrastive loss: 726 windows, 348 pos, 182 neg labels
+[FAISS] seq_len=2: index built with 726 vectors
+[AE] Contrastive loss: 725 windows, 347 pos, 182 neg labels
+[FAISS] seq_len=3: index built with 725 vectors
+[AE] Contrastive loss: 724 windows, 346 pos, 182 neg labels
+[FAISS] seq_len=4: index built with 724 vectors
+[AE] Contrastive loss: 723 windows, 345 pos, 182 neg labels
+[FAISS] seq_len=5: index built with 723 vectors
+[AE] Contrastive loss: 722 windows, 344 pos, 182 neg labels
+[FAISS] seq_len=6: index built with 722 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+[AE] Contrastive loss: 767 windows, 370 pos, 194 neg labels
+[FAISS] seq_len=2: index built with 767 vectors
+[AE] Contrastive loss: 766 windows, 369 pos, 194 neg labels
+[FAISS] seq_len=3: index built with 766 vectors
+[AE] Contrastive loss: 765 windows, 368 pos, 194 neg labels
+[FAISS] seq_len=4: index built with 765 vectors
+[AE] Contrastive loss: 764 windows, 367 pos, 194 neg labels
+[FAISS] seq_len=5: index built with 764 vectors
+[AE] Contrastive loss: 763 windows, 366 pos, 194 neg labels
+[FAISS] seq_len=6: index built with 763 vectors
+[MetaRanker] Trained: n=23, feat_dim=13, leaves=6
+
+[backtest] Trades: 23 (stopped_out: 0) | skipped_no_pattern: 636 | skipped_low_edge: 19 | skipped_low_conf: 0
+Trades in 800 bars: 23
+PASS: zero-trade bug resolved (23 trades)

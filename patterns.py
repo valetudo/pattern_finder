@@ -2,14 +2,13 @@
 
 import warnings
 import numpy as np
-from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
 
 from config import (
     PATTERN_LENGTHS, COSINE_SIMILARITY_THRESHOLD, MIN_OCCURRENCES,
     FORWARD_WINDOW, MIN_DIRECTIONAL_CONSISTENCY, MIN_DTW_COMPACTNESS,
     MIN_REGIME_WEIGHT, MIN_EDGE_QUALITY, MIN_ABS_MEAN_OUTCOME,
-    DBSCAN_PERCENTILE, HMM_STATES, HMM_LOOKBACK, SEED, EMBEDDING_DIM,
+    EMBARGO_BARS, USE_EMBARGO, HMM_STATES, HMM_LOOKBACK, SEED, EMBEDDING_DIM,
     SL_MULT, TP_MULT, BARRIER_USE_INTRADAY, FALLBACK_LOG,
 )
 
@@ -65,8 +64,8 @@ def find_occurrences(query_emb: np.ndarray, all_embs: np.ndarray,
     candidates = np.where(sims >= threshold)[0]
     if len(candidates) == 0:
         return []
-    # Sort candidates by descending similarity, then apply non-overlap filter
-    order = candidates[np.argsort(-sims[candidates])]
+    # Sort by position (ascending) for temporal diversity in non-overlap greedy
+    order = np.sort(candidates)
     selected = []
     last_end = -1
     for idx in order:
@@ -104,8 +103,12 @@ class FAISSIndex:
         self._dim = d
         vecs = embeddings.copy().astype(np.float32)
         faiss.normalize_L2(vecs)
-        hnsw = faiss.IndexHNSWFlat(d, 32)      # M=32
+        # BUG_FIX: use METRIC_INNER_PRODUCT so D[0] contains cosine similarities
+        # (not L2 distances). With L2, `sims >= threshold` was inverted — similar
+        # patterns (small L2) failed the filter while dissimilar ones passed.
+        hnsw = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
         hnsw.hnsw.efConstruction = 200
+        hnsw.hnsw.efSearch = 64
         self._index = faiss.IndexIDMap(hnsw)
         self._index.add_with_ids(vecs, ids.astype(np.int64))
 
@@ -128,7 +131,9 @@ class FAISSIndex:
         idxs = idxs[mask]
         if len(idxs) == 0:
             return []
-        order = np.argsort(-sims)
+        # Sort by ascending position for temporal diversity: prevents consecutive
+        # high-similarity bars from blocking all others in the greedy non-overlap step
+        order = np.argsort(idxs)
         selected: list[int] = []
         last_end = -1
         for i in order:
@@ -215,41 +220,41 @@ def collect_forward_paths(occurrences: list, close_prices: np.ndarray,
                           low_prices: np.ndarray | None = None,
                           high_prices: np.ndarray | None = None,
                           atr_arr: np.ndarray | None = None,
-                          val_close: np.ndarray | None = None,
-                          val_offset: int = 0):
+                          bar_idx: int = 0):
     """
     Returns (paths, stopped_flags, barrier_info).
     - paths: (n_valid, fwd) float32 — forward return paths (flat after barrier exit)
     - stopped_flags: (n_valid,) bool — True if stopped out (SL hit)
     - barrier_info: list of dicts {barrier_type, barrier_day, exit_price, mae}
 
-    FIX 1: val split — if val_close is provided, outcomes are measured in
-    the validation window (close_prices[val_offset:]) to remove selection bias.
-    FIX 2: triple barrier — SL=SL_MULT*ATR, TP=TP_MULT*ATR, time=fwd.
+    BUG1_FIX: Removed broken match/val split. Measures outcomes directly from
+    close_prices using an embargo to prevent near-future contamination.
     """
     n_full = len(close_prices)
-    use_val = val_close is not None and len(val_close) > 0
     use_barriers = (low_prices is not None and high_prices is not None
                     and atr_arr is not None and BARRIER_USE_INTRADAY)
 
-    # ── First pass: raw paths to determine global direction ──────────────
+    # Embargo: pattern_end must be at least EMBARGO_BARS before the current query start
+    query_start = bar_idx - seq_len
+
+    # ── First pass: filter occurrences + determine direction ──────────────
     raw_final_rets = []
     valid_occurrences = []
     for start in occurrences:
-        if use_val:
-            val_entry = start + seq_len - val_offset   # index in val_close
-            val_exit = val_entry + fwd
-            if val_entry < 0 or val_exit >= len(val_close):
-                continue
-            entry_close = close_prices[start + seq_len - 1]
-            raw_ret = (float(val_close[val_exit - 1]) - entry_close) / (entry_close + 1e-8)
-        else:
-            entry_idx = start + seq_len
-            exit_idx = entry_idx + fwd
-            if exit_idx >= n_full:
-                continue
-            entry_close = close_prices[entry_idx - 1]
-            raw_ret = (float(close_prices[exit_idx - 1]) - entry_close) / (entry_close + 1e-8)
+        pattern_end = start + seq_len - 1
+        outcome_end = start + seq_len + fwd  # exclusive
+
+        # Embargo: exclude occurrences too close to the current query
+        if USE_EMBARGO and pattern_end >= query_start - EMBARGO_BARS:
+            continue
+        # No-lookahead: outcome must be fully in the past
+        if outcome_end > bar_idx:
+            continue
+        if outcome_end > n_full:
+            continue
+
+        entry_close = close_prices[start + seq_len - 1]
+        raw_ret = (float(close_prices[start + seq_len + fwd - 1]) - entry_close) / (entry_close + 1e-8)
         raw_final_rets.append(raw_ret)
         valid_occurrences.append(start)
 
@@ -261,53 +266,35 @@ def collect_forward_paths(occurrences: list, close_prices: np.ndarray,
     direction = 1 if mean_raw >= 0 else -1
 
     # ── Second pass: apply triple barrier (PERF FIX 2 — vectorized) ─────
-    paths = []
-    stopped_flags = []
-    barrier_info = []
-
     starts_arr = np.array(valid_occurrences, dtype=np.int64)
-
-    # Collect entry prices and ATR values per occurrence
-    if use_val:
-        full_entries = np.array([val_offset + (s + seq_len - val_offset)
-                                 for s in valid_occurrences], dtype=np.int64)
-        entry_closes = close_prices[starts_arr + seq_len - 1]
-    else:
-        full_entries = starts_arr + seq_len
-        entry_closes = close_prices[np.clip(full_entries - 1, 0, len(close_prices) - 1)]
+    full_entries = starts_arr + seq_len
+    entry_closes = close_prices[np.clip(full_entries - 1, 0, len(close_prices) - 1)]
 
     atr_values = np.zeros(len(starts_arr), dtype=np.float64)
     if use_barriers:
         atr_idx = np.clip(full_entries - 1, 0, len(atr_arr) - 1)
         atr_values = atr_arr[atr_idx].astype(np.float64)
 
-    # Vectorized triple barrier for all occurrences at once
     if use_barriers and atr_values.max() > 0:
-        _full_close = close_prices if not use_val else np.concatenate([close_prices, val_close])
         v_exit_prices, v_barrier_types, v_barrier_days = apply_triple_barrier_vectorized(
             starts_arr, seq_len, direction,
             entry_closes, atr_values,
-            low_prices, high_prices, _full_close,
+            low_prices, high_prices, close_prices,
             fwd, SL_MULT, TP_MULT,
         )
     else:
-        # No barriers: time exit only
         v_exit_prices = None
         v_barrier_types = np.full(len(starts_arr), "time")
         v_barrier_days = np.full(len(starts_arr), fwd)
 
-    # Build path arrays (vectorized where possible, per-occurrence for MAE)
+    paths = []
+    stopped_flags = []
+    barrier_info = []
+
     for k, start in enumerate(valid_occurrences):
-        if use_val:
-            val_entry = start + seq_len - val_offset
-            entry_close = entry_closes[k]
-            fwd_closes = val_close[val_entry: val_entry + fwd]
-            full_entry = int(full_entries[k])
-        else:
-            entry_close = entry_closes[k]
-            entry_idx = int(full_entries[k])
-            fwd_closes = close_prices[entry_idx: entry_idx + fwd]
-            full_entry = entry_idx
+        entry_close = entry_closes[k]
+        entry_idx = int(full_entries[k])
+        fwd_closes = close_prices[entry_idx: entry_idx + fwd]
 
         if len(fwd_closes) < fwd:
             continue
@@ -318,11 +305,10 @@ def collect_forward_paths(occurrences: list, close_prices: np.ndarray,
                        else float(fwd_closes[-1])
         barrier_hit  = barrier_type != "time"
 
-        # MAE: vectorized over forward window
         if use_barriers and atr_values[k] > 0:
             j_end = min(barrier_day, fwd)
-            lo_fwd = low_prices[full_entry: full_entry + j_end].astype(np.float64)
-            hi_fwd = high_prices[full_entry: full_entry + j_end].astype(np.float64)
+            lo_fwd = low_prices[entry_idx: entry_idx + j_end].astype(np.float64)
+            hi_fwd = high_prices[entry_idx: entry_idx + j_end].astype(np.float64)
             if direction == 1:
                 mae = float(((lo_fwd - entry_close) / (entry_close + 1e-8)).min()) \
                       if len(lo_fwd) else 0.0
@@ -332,7 +318,6 @@ def collect_forward_paths(occurrences: list, close_prices: np.ndarray,
         else:
             mae = 0.0
 
-        # Build path
         final_ret = (exit_price - entry_close) / (entry_close + 1e-8)
         if barrier_hit and barrier_day < fwd:
             path = ((fwd_closes - entry_close) / (entry_close + 1e-8)).astype(np.float32)
@@ -357,81 +342,27 @@ def collect_forward_paths(occurrences: list, close_prices: np.ndarray,
             barrier_info)
 
 
-# ── DTW compactness via DBSCAN ──────────────────────────────────────────────
+# ── DTW compactness via directional agreement ───────────────────────────────
 
-def dtw_compactness_numpy(paths: np.ndarray) -> float:
+def dtw_compactness(paths: list) -> float:
     """
-    PERF FIX 1 — O(N×T) vectorized centroid-distance compactness.
-    Replaces the O(N²×T²) DTW pairwise matrix.
+    BUG3_FIX: Measures outcome path coherence via directional agreement.
 
-    Normalises each path to [0,1], computes centroid, then measures what
-    fraction of paths lie within one std-dev of the mean centroid distance.
-    Comparable in signal quality to DTW compactness for short paths (T=5).
+    Replaces DBSCAN clustering (which set geometrically impossible thresholds
+    with only 2-4 points per cluster on financial data). Instead: measures
+    what fraction of (path, day) pairs agree with the mean path's direction.
+
+    A score of 0.60 means 60% of directions agree — realistic for good patterns.
+    Calibrated threshold: MIN_DTW_COMPACTNESS = 0.58.
     """
-    if len(paths) < 2:
-        return 0.0
-    arr = np.array(paths, dtype=np.float64)          # (N, T)
-    rng = arr.max(axis=1) - arr.min(axis=1)
-    rng = np.where(rng < 1e-8, 1.0, rng)
-    arr_norm = (arr - arr.min(axis=1, keepdims=True)) / rng[:, None]
-    centroid = arr_norm.mean(axis=0)
-    dists = np.sqrt(((arr_norm - centroid) ** 2).sum(axis=1))
-    mean_d = dists.mean()
-    std_d  = dists.std() + 1e-8
-    return float((dists <= mean_d + std_d).sum()) / len(paths)
-
-
-def dtw_compactness_original(paths: np.ndarray) -> float:
-    """Original O(N²) DTW+DBSCAN implementation — reserved for borderline cases."""
     if len(paths) < 3:
         return 0.0
-    try:
-        from dtaidistance import dtw_ndim as dtw_mod
-        paths_list = [p.astype(np.float64) for p in paths]
-        dist_matrix = dtw_mod.distance_matrix_fast(paths_list, ndim=1, compact=False)
-    except Exception:
-        try:
-            from dtaidistance import dtw as dtw_1d
-            n = len(paths)
-            dist_matrix = np.zeros((n, n), dtype=np.float64)
-            for i in range(n):
-                for j in range(i + 1, n):
-                    d = dtw_1d.distance_fast(paths[i].astype(np.float64),
-                                             paths[j].astype(np.float64))
-                    dist_matrix[i, j] = dist_matrix[j, i] = d
-        except Exception:
-            from scipy.spatial.distance import pdist, squareform
-            dist_matrix = squareform(pdist(paths, metric="euclidean"))
-    upper = dist_matrix[np.triu_indices(len(paths), k=1)]
-    if len(upper) == 0 or upper.max() == 0:
-        return 1.0
-    eps = float(np.percentile(upper, DBSCAN_PERCENTILE))
-    if eps <= 0:
-        eps = float(upper.mean()) * 0.5
-    db = DBSCAN(eps=eps, min_samples=2, metric="precomputed")
-    labels = db.fit_predict(dist_matrix)
-    if labels.max() < 0:
-        return 0.0
-    counts = np.bincount(labels[labels >= 0])
-    return float(counts.max()) / len(paths)
-
-
-def dtw_compactness(paths: np.ndarray) -> float:
-    """
-    PERF FIX 1 — Three-layer strategy:
-      1. Fast numpy centroid score (O(N×T))
-      2. Call original DTW only in borderline range [threshold-0.05, threshold+0.10]
-      3. Otherwise use numpy result directly
-    """
-    numpy_score = dtw_compactness_numpy(paths)
-    lo = MIN_DTW_COMPACTNESS - 0.05
-    hi = MIN_DTW_COMPACTNESS + 0.10
-    if lo <= numpy_score <= hi:
-        try:
-            return dtw_compactness_original(paths)
-        except Exception:
-            return numpy_score
-    return numpy_score
+    arr = np.array(paths, dtype=np.float64)  # (N, T)
+    mean_path = arr.mean(axis=0)             # (T,)
+    mean_direction = np.sign(mean_path)      # +1 or -1 per day
+    path_directions = np.sign(arr)           # (N, T)
+    agreement = (path_directions == mean_direction[None, :])
+    return float(agreement.mean())
 
 
 # ── HMM regime detection ────────────────────────────────────────────────────
@@ -573,9 +504,16 @@ def score_pattern(paths: np.ndarray, regime: int,
     if regime_weight < min_regime_weight:
         return _result(None, "regime_fail")
 
-    mean_abs_outcome = float(np.mean(np.abs(final_day)))
-    edge_quality = abs_mean_outcome / (mean_abs_outcome + 1e-8)
-    edge_quality = min(max(edge_quality, 0.0), 1.0)
+    # BUG2_FIX: t-statistic edge quality — scale-invariant, robust on fat-tailed returns
+    # t_stat / 3.0 maps to [0,1]: 0.33 ≈ borderline (t=1), 0.67 ≈ significant (t=2)
+    n_paths = len(final_day)
+    if n_paths < 4:
+        edge_quality = 0.0
+    else:
+        outcomes_arr = final_day.astype(np.float64)
+        std_out = float(outcomes_arr.std(ddof=1)) + 1e-8
+        t_stat = abs_mean_outcome / (std_out / np.sqrt(n_paths))
+        edge_quality = float(min(1.0, t_stat / 3.0))
     if edge_quality < min_edge_quality:
         return _result(None, "edge_fail")
 

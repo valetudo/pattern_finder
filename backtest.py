@@ -10,15 +10,15 @@ from tqdm import tqdm
 
 from config import (
     PATTERN_LENGTHS, WARMUP_BARS, RETRAIN_EVERY_DAYS, FORWARD_WINDOW,
-    MIN_OCCURRENCES, COSINE_SIMILARITY_THRESHOLD,
+    MIN_OCCURRENCES, COSINE_SIMILARITY_THRESHOLD, MIN_EDGE_QUALITY,
     META_RANKER_CONFIDENCE_THRESHOLD, META_RANKER_MIN_TRADES,
     CAPITAL_PER_TRADE, ENABLE_SLIPPAGE, SLIPPAGE_PCT,
     EMBEDDING_DIM, SEED, FALLBACK_LOG,
     MIN_SIMILARITY_THRESHOLD_FLOOR, TARGET_TRADES_PER_MONTH,
-    MATCH_VALIDATION_SPLIT, MATCH_VALIDATION_MIN_BARS,
+    EMBARGO_BARS, USE_EMBARGO,
     SL_MULT, TP_MULT, HMM_LOOKBACK,
 )
-from autoencoder import train_autoencoder, compute_embeddings, _build_windows, get_device
+from autoencoder import train_autoencoder, compute_embeddings, _build_windows, get_device, fallback_embedding
 from patterns import (
     find_occurrences, collect_forward_paths, cosine_similarity_matrix,
     score_pattern, fit_hmm,
@@ -172,10 +172,8 @@ def calibrate_thresholds(df: pd.DataFrame, feat_df: pd.DataFrame) -> float:
 # ─── Fallback helpers ──────────────────────────────────────────────────────
 
 def _discrete_window_emb(window: np.ndarray) -> np.ndarray:
-    flat = window.flatten().astype(np.float32)
-    out = np.zeros(EMBEDDING_DIM, dtype=np.float32)
-    out[:min(len(flat), EMBEDDING_DIM)] = flat[:EMBEDDING_DIM]
-    return out
+    # BUG4_FIX: use normalized fallback embedding for geometrically meaningful cosine similarity
+    return fallback_embedding(window, embedding_dim=EMBEDDING_DIM)
 
 
 def _discrete_embed_all(feat_array: np.ndarray, seq_len: int) -> np.ndarray:
@@ -598,21 +596,8 @@ def run_backtest(
             if query_emb is None:
                 continue
 
-            # FIX 1: Match/Validation corpus split to remove selection bias
-            split_idx = int(bar_idx * MATCH_VALIDATION_SPLIT)
-            use_val_split = (bar_idx - split_idx) >= MATCH_VALIDATION_MIN_BARS
-            if use_val_split:
-                match_corpus = corpus[:split_idx]
-                val_close = close_arr[split_idx:]
-                val_offset = split_idx
-                max_search_idx = min(split_idx - seq_len, len(match_corpus))
-            else:
-                match_corpus = corpus
-                val_close = None
-                val_offset = 0
-                max_search_idx = min(bar_idx - seq_len, len(corpus))
-                if bar_gate_reason is None:
-                    bar_gate_reason = "split_too_small"
+            # BUG1_FIX: use full corpus; embargo applied in collect_forward_paths
+            max_search_idx = min(bar_idx - seq_len, len(corpus))
 
             if max_search_idx < effective_min_occurrences:
                 if bar_gate_reason is None:
@@ -628,7 +613,7 @@ def run_backtest(
                 )
             else:
                 occurrences = find_occurrences(
-                    query_emb, match_corpus, seq_len, max_search_idx,
+                    query_emb, corpus, seq_len, max_search_idx,
                     threshold=effective_similarity_threshold,
                 )
             if len(occurrences) == 0 and bar_gate_reason is None:
@@ -639,14 +624,14 @@ def run_backtest(
                 continue
 
             if len(occurrences) > MAX_DTW_PATHS:
-                sims = cosine_similarity_matrix(query_emb, match_corpus[occurrences])
+                sims = cosine_similarity_matrix(query_emb, corpus[occurrences])
                 top_k = np.argsort(-sims)[:MAX_DTW_PATHS]
                 occurrences = [occurrences[i] for i in top_k]
 
             paths, stopped_flags, barrier_info = collect_forward_paths(
                 occurrences, close_arr, seq_len, FORWARD_WINDOW,
                 low_prices=low_arr, high_prices=high_arr, atr_arr=atr_arr,
-                val_close=val_close, val_offset=val_offset,
+                bar_idx=bar_idx,
             )
             if len(paths) < effective_min_occurrences:
                 if bar_gate_reason is None:
@@ -707,7 +692,7 @@ def run_backtest(
         if best_candidate is None:
             skipped_no_pattern += 1
             gate_counters[bar_gate_reason or "no_pattern_found"] += 1
-        elif best_candidate["edge_quality"] < 0.15:
+        elif best_candidate["edge_quality"] < MIN_EDGE_QUALITY:
             skipped_low_edge += 1
             gate_counters["edge_fail"] += 1
         else:

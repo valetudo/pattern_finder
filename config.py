@@ -28,15 +28,17 @@ WARMUP_BARS = 252
 RETRAIN_EVERY_DAYS = 60       # calendar days between retrains
 MIN_OCCURRENCES = 10
 FORWARD_WINDOW = 5            # days to hold trade
+EMBARGO_BARS = FORWARD_WINDOW   # anti-lookahead embargo for pattern scoring
+USE_EMBARGO = True              # BUG1_FIX: use embargo instead of broken match/val split
 COSINE_SIMILARITY_THRESHOLD = 0.75
 MIN_SIMILARITY_THRESHOLD_FLOOR = 0.62
 TARGET_TRADES_PER_MONTH = 2.0
 
 # Scoring thresholds (each component must exceed this)
 MIN_DIRECTIONAL_CONSISTENCY = 0.52
-MIN_DTW_COMPACTNESS = 0.50
+MIN_DTW_COMPACTNESS = 0.58
 MIN_REGIME_WEIGHT = 0.50
-MIN_EDGE_QUALITY = 0.15
+MIN_EDGE_QUALITY = 0.20
 MIN_ABS_MEAN_OUTCOME = 0.0010
 
 # Meta-ranker
@@ -71,7 +73,7 @@ ENABLE_DOW_EMBEDDING = True
 ENABLE_MOMENTUM_FEATURE = True
 
 # Match/Validation corpus split (removes selection bias)
-MATCH_VALIDATION_SPLIT = 0.7
+MATCH_VALIDATION_SPLIT = 1.0  # disabled — embargo handles selection bias (BUG1_FIX)
 MATCH_VALIDATION_MIN_BARS = 60
 
 # Triple barrier
