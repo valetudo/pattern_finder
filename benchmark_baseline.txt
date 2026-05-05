@@ -1,0 +1,89 @@
+[data] Loaded 8372 rows from cache (data_cache_SPY.pkl)
+[data] Loaded VIX from cache: 9151 bars
+Walk-forward:   0%|          | 0/240 [00:00<?, ?day/s]Walk-forward:   0%|          | 1/240 [00:01<07:24,  1.86s/day]Walk-forward:  18%|#8        | 44/240 [00:04<00:19, 10.20day/s]Walk-forward:  35%|###5      | 85/240 [00:08<00:14, 10.80day/s]Walk-forward:  53%|#####3    | 128/240 [00:13<00:11,  9.63day/s]Walk-forward:  71%|#######1  | 171/240 [00:19<00:08,  8.24day/s]Walk-forward:  88%|########8 | 212/240 [00:26<00:03,  7.24day/s]Walk-forward: 100%|##########| 240/240 [00:26<00:00,  8.96day/s]
+[AE] Contrastive loss: 34 windows, 12 pos, 16 neg labels
+[FAISS] seq_len=2: index built with 34 vectors
+[AE] Contrastive loss: 33 windows, 11 pos, 16 neg labels
+[FAISS] seq_len=3: index built with 33 vectors
+[AE] Contrastive loss: 32 windows, 10 pos, 16 neg labels
+[FAISS] seq_len=4: index built with 32 vectors
+[FAISS] seq_len=5: index built with 31 vectors
+[FAISS] seq_len=6: index built with 30 vectors
+
+[ETA] ~0.7 min remaining (0.188s/bar)
+[AE] Contrastive loss: 77 windows, 31 pos, 28 neg labels
+[FAISS] seq_len=2: index built with 77 vectors
+[AE] Contrastive loss: 76 windows, 30 pos, 28 neg labels
+[FAISS] seq_len=3: index built with 76 vectors
+[AE] Contrastive loss: 75 windows, 29 pos, 28 neg labels
+[FAISS] seq_len=4: index built with 75 vectors
+[AE] Contrastive loss: 74 windows, 28 pos, 28 neg labels
+[FAISS] seq_len=5: index built with 74 vectors
+[AE] Contrastive loss: 73 windows, 27 pos, 28 neg labels
+[FAISS] seq_len=6: index built with 73 vectors
+
+[bar 100] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    0 (0%)
+  split_too_small          :   55 (83%)
+  directional_fail         :    0 (0%)
+  dtw_fail                 :    0 (0%)
+  regime_fail              :    0 (0%)
+  edge_fail                :    0 (0%)
+  meta_blocked             :    0 (0%)
+  traded                   :   11 (17%)
+[AE] Contrastive loss: 118 windows, 53 pos, 37 neg labels
+[FAISS] seq_len=2: index built with 118 vectors
+[AE] Contrastive loss: 117 windows, 53 pos, 37 neg labels
+[FAISS] seq_len=3: index built with 117 vectors
+[AE] Contrastive loss: 116 windows, 52 pos, 37 neg labels
+[FAISS] seq_len=4: index built with 116 vectors
+[AE] Contrastive loss: 115 windows, 51 pos, 37 neg labels
+[FAISS] seq_len=5: index built with 115 vectors
+[AE] Contrastive loss: 114 windows, 50 pos, 37 neg labels
+[FAISS] seq_len=6: index built with 114 vectors
+[AE] Contrastive loss: 161 windows, 73 pos, 49 neg labels
+[FAISS] seq_len=2: index built with 161 vectors
+[AE] Contrastive loss: 160 windows, 72 pos, 49 neg labels
+[FAISS] seq_len=3: index built with 160 vectors
+[AE] Contrastive loss: 159 windows, 71 pos, 49 neg labels
+[FAISS] seq_len=4: index built with 159 vectors
+[AE] Contrastive loss: 158 windows, 70 pos, 49 neg labels
+[FAISS] seq_len=5: index built with 158 vectors
+[AE] Contrastive loss: 157 windows, 69 pos, 49 neg labels
+[FAISS] seq_len=6: index built with 157 vectors
+
+[bar 200] Gate breakdown:
+  no_pattern_found         :    0 (0%)
+  below_min_occ            :    4 (2%)
+  split_too_small          :  151 (91%)
+  directional_fail         :    0 (0%)
+  dtw_fail                 :    0 (0%)
+  regime_fail              :    0 (0%)
+  edge_fail                :    0 (0%)
+  meta_blocked             :    0 (0%)
+  traded                   :   11 (7%)
+[AE] Contrastive loss: 204 windows, 93 pos, 60 neg labels
+[FAISS] seq_len=2: index built with 204 vectors
+[AE] Contrastive loss: 203 windows, 92 pos, 60 neg labels
+[FAISS] seq_len=3: index built with 203 vectors
+[AE] Contrastive loss: 202 windows, 91 pos, 60 neg labels
+[FAISS] seq_len=4: index built with 202 vectors
+[AE] Contrastive loss: 201 windows, 90 pos, 60 neg labels
+[FAISS] seq_len=5: index built with 201 vectors
+[AE] Contrastive loss: 200 windows, 89 pos, 60 neg labels
+[FAISS] seq_len=6: index built with 200 vectors
+[AE] Contrastive loss: 245 windows, 111 pos, 74 neg labels
+[FAISS] seq_len=2: index built with 245 vectors
+[AE] Contrastive loss: 244 windows, 110 pos, 74 neg labels
+[FAISS] seq_len=3: index built with 244 vectors
+[AE] Contrastive loss: 243 windows, 109 pos, 74 neg labels
+[FAISS] seq_len=4: index built with 243 vectors
+[AE] Contrastive loss: 242 windows, 108 pos, 74 neg labels
+[FAISS] seq_len=5: index built with 242 vectors
+[AE] Contrastive loss: 241 windows, 107 pos, 74 neg labels
+[FAISS] seq_len=6: index built with 241 vectors
+
+[backtest] Trades: 11 (stopped_out: 0) | skipped_no_pattern: 229 | skipped_low_edge: 0 | skipped_low_conf: 0
+BASELINE: 300-bar test = 26.8s (0.09s/bar)
+Projected full backtest: 0.2 hours

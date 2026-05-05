@@ -1,0 +1,11 @@
+[PERF] No GPU detected — using CPU. Install CUDA PyTorch for 5-10x speedup.
+[PERF] FAISS is ACTIVE — using approximate nearest neighbor search
+============================================================
+  Walk-Forward OHLC Pattern Mining Backtest
+  Ticker: SPY
+============================================================
+[data] Loaded 8372 rows from cache (data_cache_SPY.pkl)
+[data] Loaded VIX from cache: 9151 bars
+[runner] Feature columns (9): ['body', 'upper_wick', 'lower_wick', 'gap', 'rel_range', 'vix_norm', 'dow_sin', 'dow_cos', 'momentum']
+[calibration] WARNING: COSINE_SIMILARITY_THRESHOLD=0.75 may be too high. Calibration suggests 0.65. Auto-adjusting to 0.65.
+Walk-forward:   0%|          | 0/8095 [00:00<?, ?day/s]
