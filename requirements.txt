@@ -1,0 +1,13 @@
+streamlit
+yfinance
+matplotlib
+pandas
+numpy
+scipy
+torch
+lightgbm
+hmmlearn
+dtaidistance
+scikit-learn
+tqdm
+faiss-cpu

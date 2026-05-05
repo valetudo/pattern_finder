@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Claude Code internal
+.claude/
+
+# Large binary / generated artefacts
+*.pkl
+*.mp4
+*.docx
+*.xlsx
+*.db
+
+# Runtime outputs (reproduced on each run)
+fallback_log.txt
+session_log.txt
+diagnosis_output.txt
+last_webapp_url.txt
+summary.txt
+equity_line.png
+trades_log.csv
+test_equity.png
+test_trades.csv
+webapp_launcher_stdout.log
+webapp_launcher_stderr.log
+~$*
+
+# Windows launcher shortcuts
+*.bat
+*.ps1
+*.vbs

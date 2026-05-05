@@ -1,0 +1,515 @@
+PATTERN FINDER - SPIEGAZIONE DETTAGLIATA DELLA LOGICA DI FUNZIONAMENTO
+
+1. OBIETTIVO DEL SISTEMA
+
+Questo trading system e' un motore di pattern mining walk-forward applicato a serie OHLC giornaliere. Il suo scopo non e' prevedere il mercato con regole fisse classiche, ma cercare nel passato configurazioni di prezzo simili a quella attuale, osservare come il mercato si e' comportato dopo quelle configurazioni e decidere se esiste un vantaggio statistico sufficiente per aprire un trade long o short.
+
+L'idea centrale e' questa:
+
+- si prende il pattern piu' recente del mercato, su diverse lunghezze possibili
+- lo si trasforma in una rappresentazione numerica compatta tramite embedding
+- si cercano nel passato pattern simili
+- si studiano i risultati successivi dei casi storici trovati
+- si assegna un punteggio di qualita' al pattern
+- facoltativamente si filtra il segnale con un meta-modello supervisionato
+- se il segnale supera i filtri, si simula un trade con durata fissa
+
+Il sistema quindi non usa indicatori tradizionali per generare il segnale finale. Gli indicatori e le feature servono soprattutto a descrivere geometricamente il pattern e a contestualizzarlo nel regime di mercato.
+
+2. ARCHITETTURA LOGICA AD ALTO LIVELLO
+
+La pipeline completa e' composta da questi blocchi:
+
+- acquisizione e caching dei dati storici
+- costruzione delle feature candlestick/volatilita'
+- creazione di finestre temporali di lunghezza N
+- addestramento di un autoencoder LSTM per comprimere ogni finestra in un embedding
+- ricerca dei pattern storici simili tramite cosine similarity
+- analisi del comportamento forward dei match trovati
+- misura della coerenza del pattern tramite directional consistency, DTW compactness, regime weight ed edge quality
+- ranking finale del candidato con meta-ranker LightGBM quando disponibile
+- simulazione del trade walk-forward senza look-ahead
+- reporting con equity curve, drawdown, win rate e log dei trade
+- interfaccia Streamlit per backtest parametrico e verifica visiva dei pattern
+
+3. DATI IN INGRESSO
+
+Il sistema scarica i dati da Yahoo Finance e usa dati OHLC aggiustati. Le colonne mantenute sono:
+
+- Open
+- High
+- Low
+- Close
+
+Il download e' fatto con periodo massimo disponibile. Per evitare download ripetuti, i dati vengono salvati in cache locale. La cache e' anche separata per ticker, in modo da non mischiare storici diversi.
+
+Punto importante: il sistema allinea sempre i dati OHLC con le feature calcolate. Questo significa che eventuali barre iniziali senza ATR o senza valori validi vengono scartate, e solo le date comuni fra prezzo e feature entrano nel motore decisionale.
+
+4. FEATURE ENGINEERING: COME VIENE DESCRITTA OGNI BARRA
+
+Ogni barra giornaliera viene trasformata in 5 feature normalizzate. L'obiettivo non e' usare il prezzo assoluto, ma la forma relativa della candela e la sua intensita' rispetto alla volatilita' recente.
+
+Le 5 feature sono:
+
+4.1 Body
+Definisce il corpo della candela come:
+
+- (Close - Open) / (High - Low)
+
+Serve a misurare direzione e forza della candela rispetto alla sua escursione totale.
+
+4.2 Upper wick
+Definisce l'ombra superiore come proporzione del range totale. Aiuta a distinguere candele con rifiuto dei massimi.
+
+4.3 Lower wick
+Definisce l'ombra inferiore come proporzione del range totale. Aiuta a distinguere rifiuti dei minimi.
+
+4.4 Gap
+Misura il gap tra apertura corrente e close precedente, normalizzato per il prezzo precedente. Serve a catturare discontinuita' di apertura.
+
+4.5 Relative range
+Misura il range della candela rispetto all'ATR rolling. Serve a capire se la barra e' piccola o ampia rispetto alla volatilita' recente.
+
+Questa scelta e' importante perche' rende il sistema piu' robusto nel confrontare pattern lontani nel tempo: non interessa tanto che il prezzo sia 100 o 500, ma che la struttura della sequenza di barre sia comparabile.
+
+5. COSTRUZIONE DEI PATTERN TEMPORALI
+
+Il sistema non osserva una sola barra isolata. Lavora invece su finestre scorrevoli di lunghezza N, dove N puo' essere:
+
+- 2
+- 3
+- 4
+- 5
+- 6
+
+Per ogni lunghezza N, viene generata una sequenza di barre consecutive. Ogni sequenza e' quindi un micro-pattern di mercato. L'idea e' che alcuni segnali possano essere molto brevi, mentre altri abbiano bisogno di qualche barra in piu' per diventare riconoscibili.
+
+La presenza di piu' lunghezze rende il sistema multi-scala: non cerca un solo tipo di pattern, ma piu' granularita' temporali contemporaneamente.
+
+6. EMBEDDING CON AUTOENCODER LSTM
+
+Il cuore del sistema e' l'uso di un autoencoder LSTM. Questo componente prende in input una finestra di N barre, ciascuna descritta da 5 feature, e la comprime in un vettore latente di dimensione ridotta.
+
+6.1 Perche' serve un embedding
+Confrontare direttamente tutte le finestre punto per punto sarebbe fragile e costoso. L'embedding serve a ottenere una rappresentazione compatta che mantenga la struttura essenziale del pattern.
+
+6.2 Struttura del modello
+
+- encoder LSTM: legge la sequenza e produce uno stato nascosto finale
+- layer lineare: comprime quello stato in un embedding di dimensione 32
+- decoder LSTM: tenta di ricostruire la sequenza originale partendo dall'embedding
+
+Il modello viene addestrato minimizzando l'errore di ricostruzione MSE. In pratica il sistema impara a rappresentare bene le forme ricorrenti osservate nella storia recente disponibile.
+
+6.3 Addestramento nel tempo
+L'autoencoder non viene addestrato una volta sola all'inizio. Viene riaddestrato periodicamente nel loop walk-forward, in modo che la rappresentazione dei pattern resti aderente al contesto di mercato piu' recente.
+
+6.4 Fallback di sicurezza
+Se l'autoencoder fallisce, produce NaN o non ha abbastanza finestre per addestrarsi, il sistema non si blocca. Passa a un embedding discreto di fallback ottenuto appiattendo la finestra e proiettandola in uno spazio numerico fisso. E' una soluzione meno sofisticata ma garantisce continuita' operativa.
+
+7. REGIME DI MERCATO
+
+Il sistema non valuta i pattern in modo totalmente cieco rispetto al contesto. Usa un modello HMM gaussiano a 2 stati per classificare il regime di mercato corrente.
+
+Le feature del regime sono:
+
+- rolling volatility sui log-return
+- rolling trend medio sui log-return
+
+L'HMM cerca di separare automaticamente due stati latenti del mercato. In termini pratici, questi stati possono corrispondere ad esempio a fasi piu' calme vs piu' turbolente, o piu' trend vs piu' mean-reverting, senza che il sistema imponga un'etichetta manuale.
+
+Questo regime entra poi nel punteggio del pattern attraverso il regime weight, cioe' quanto storicamente i trade di quella direzione hanno funzionato in quel regime.
+
+8. WALK-FORWARD REALE E ASSENZA DI LOOK-AHEAD
+
+Il backtest e' costruito in modo walk-forward. Questo e' un punto fondamentale.
+
+Per ogni giorno t:
+
+- il sistema guarda solo i dati disponibili fino a t
+- genera il pattern corrente con le ultime N barre concluse
+- cerca pattern simili solo nel passato, mai nel futuro
+- decide se aprire un trade per il giorno successivo
+- simula ingresso e uscita su finestre future solo dopo avere deciso
+
+In altre parole, il sistema cerca di rispettare la sequenza temporale reale dell'informazione. Non usa dati che al tempo decisionale non sarebbero stati disponibili.
+
+9. RITRAIN PERIODICO E CACHE DEGLI EMBEDDING
+
+L'addestramento del modello non avviene a ogni singola barra, per evitare costi computazionali eccessivi. Invece:
+
+- esiste un warmup iniziale per accumulare abbastanza storia
+- il modello viene riaddestrato ogni certo numero di giorni di calendario
+- dopo ogni retrain, vengono precomputati gli embedding del corpus e quelli di query per un blocco di barre future
+
+Questo approccio ha due vantaggi:
+
+- mantiene il modello aggiornato al contesto recente
+- riduce il costo di inferenza durante il loop giornaliero
+
+10. RICERCA DEI PATTERN STORICI SIMILI
+
+Una volta ottenuto l'embedding del pattern corrente, il sistema confronta quel vettore con gli embedding storici del corpus.
+
+10.1 Misura di somiglianza
+La somiglianza viene calcolata con cosine similarity. Questo significa che interessa soprattutto l'orientamento del vettore nello spazio latente, cioe' la forma del pattern piu' che la sua scala assoluta.
+
+10.2 Selezione dei candidati
+Vengono presi i pattern storici con similarita' superiore a una soglia. La soglia non e' sempre rigida: per dataset molto corti puo' essere ammorbidita in modo adattivo.
+
+10.3 No overlap
+I match selezionati devono essere non sovrapposti. Questo evita di contare come esempi indipendenti pattern quasi identici ma in realta' appartenenti alla stessa zona temporale del grafico.
+
+10.4 Numero minimo di occorrenze
+Un pattern non viene considerato se non ha abbastanza esempi storici. Anche questo requisito e' adattivo: su storici brevi si abbassa per non azzerare completamente l'operativita'.
+
+11. ANALISI FORWARD DEI MATCH TROVATI
+
+Per ogni occorrenza storica simile trovata, il sistema guarda cosa e' successo dopo il completamento del pattern. Non guarda il pattern in se', ma la traiettoria forward dei prezzi successivi.
+
+La finestra forward e' fissa: 5 giorni.
+
+Per ogni match storico, il sistema costruisce il percorso di rendimento close-to-close dei 5 giorni successivi rispetto al close al termine del pattern. In questo modo ottiene una matrice di traiettorie forward storiche.
+
+Questa matrice e' la base statistica per capire se il pattern ha davvero un comportamento successivo coerente.
+
+12. SCORE DEL PATTERN: I QUATTRO FILTRI PRINCIPALI
+
+Il pattern viene accettato solo se supera una serie di filtri. Questo e' il cuore della logica decisionale.
+
+12.1 Mean outcome
+Si calcola il rendimento medio del giorno finale della finestra forward tra tutti i match trovati. Se l'outcome medio assoluto e' troppo piccolo, il pattern viene scartato. L'idea e' eliminare pattern che somigliano bene dal punto di vista visivo, ma che non portano a un esito economicamente rilevante.
+
+12.2 Directional consistency
+Si misura la quota di esempi storici che vanno nella stessa direzione del rendimento medio. Se la maggioranza non e' coerente, il pattern non e' stabile e viene scartato.
+
+Interpretazione pratica:
+
+- se l'esito medio e' positivo, il sistema vuole che molti esempi storici finiscano positivi
+- se l'esito medio e' negativo, vuole che molti esempi finiscano negativi
+
+Questo filtro trasforma un semplice average effect in un effetto statisticamente piu' credibile.
+
+12.3 DTW compactness
+I percorsi forward storici non devono solo avere un esito finale simile, ma anche una forma relativamente coerente. Per questo viene calcolata la compactness tramite DTW e clustering DBSCAN.
+
+In sostanza:
+
+- si misura la distanza fra le varie traiettorie forward
+- si cerca il cluster piu' denso
+- si valuta quanto pesa il cluster principale sul totale
+
+Se i percorsi dopo il pattern sono troppo dispersi, il pattern viene considerato poco affidabile anche se l'esito medio e' interessante.
+
+12.4 Regime weight
+Il sistema tiene memoria di quanto hanno funzionato in passato i trade long o short nel regime corrente. Se in quel regime quella direzione ha storicamente funzionato poco, il pattern viene penalizzato o scartato.
+
+12.5 Edge quality
+Questo e' un filtro molto importante aggiunto per evitare pattern con outcome medio casuale. Viene calcolato come:
+
+- valore assoluto dell'outcome medio / media dei valori assoluti degli outcome finali
+
+Interpretazione:
+
+- se il rapporto e' alto, la media ha una direzione netta e pulita
+- se il rapporto e' basso, la media e' il risultato di esiti rumorosi che si compensano a vicenda
+
+Quindi l'edge quality misura la pulizia del vantaggio statistico.
+
+13. SCORE FINALE DEL PATTERN
+
+Se tutti i filtri sono superati, il sistema calcola un final score moltiplicando:
+
+- directional consistency
+- DTW compactness
+- regime weight
+- edge quality
+
+Questo score rappresenta la qualita' complessiva del pattern candidato. Non e' ancora la decisione finale di trading, ma e' la base per il ranking successivo.
+
+14. SOGLIE ADATTIVE PER STORICI BREVI
+
+Il sistema non usa sempre soglie fisse. Quando lo storico disponibile e' corto, i parametri vengono resi piu' permissivi in modo controllato.
+
+Esempi di elementi adattivi:
+
+- numero minimo di occorrenze
+- soglia minima di similarity
+- directional consistency minima
+- DTW compactness minima
+- regime weight minimo
+- edge quality minima
+- mean outcome minimo assoluto
+- warmup effettivo
+
+Questa scelta e' stata introdotta per evitare che su finestre brevi il sistema si azzeri completamente. Il principio e' mantenere coerenza logica senza distruggere l'operativita'.
+
+15. COSTRUZIONE DEL CANDIDATO MIGLIORE
+
+Per ogni giorno, il sistema analizza tutte le lunghezze di pattern possibili. Ogni lunghezza N puo' produrre un candidato valido oppure no.
+
+Fra tutti i candidati validi, viene tenuto quello con il punteggio meta piu' alto. Questo significa che in ogni giorno il sistema cerca il miglior segnale disponibile fra pattern corti e lunghi, non apre contemporaneamente piu' trade derivanti da piu' pattern.
+
+16. META-RANKER SUPERVISIONATO
+
+Oltre al punteggio interno del pattern, il sistema usa un livello superiore di selezione: un meta-ranker LightGBM.
+
+16.1 Obiettivo del meta-ranker
+Imparare, dai trade passati, quali combinazioni di caratteristiche hanno piu' probabilita' di produrre un trade profittevole.
+
+16.2 Feature del meta-ranker
+
+- pattern length
+- final score del pattern
+- numero di occorrenze storiche
+- ATR corrente
+- regime corrente
+- giorno della settimana
+- rolling win rate degli ultimi 20 trade
+
+16.3 Quando si attiva
+Il meta-ranker viene addestrato solo se il sistema ha accumulato abbastanza trade storici. Se non ci sono abbastanza esempi, il sistema usa una logica di fallback piu' semplice e si appoggia al final score del pattern.
+
+16.4 Output del meta-ranker
+Produce una probabilita' stimata che il trade sia profittevole. Se il modello e' addestrato e la probabilita' e' sotto una soglia di confidenza minima, il trade viene scartato.
+
+Questa e' una seconda barriera qualitativa: il pattern deve essere buono in se', ma anche apparire favorevole nel contesto operativo appreso dai trade precedenti.
+
+17. DECISIONE LONG O SHORT
+
+La direzione del trade non e' imposta da una regola esterna. Viene dedotta direttamente dal comportamento medio dei match storici.
+
+- se il mean outcome e' positivo, direzione long
+- se il mean outcome e' negativo, direzione short
+
+In questo senso il sistema e' simmetrico: non nasce come long-only o short-only. Lascia che sia la statistica dei pattern passati a determinare il verso dell'operazione.
+
+18. ESECUZIONE DEL TRADE NEL BACKTEST
+
+Quando un candidato supera tutti i filtri:
+
+- il trade viene aperto all'open del giorno successivo
+- il trade viene chiuso al close dopo 5 giorni
+
+La formula economica di base e':
+
+- raw return = (exit_price - entry_price) / entry_price
+- pnl = capitale fisso per trade x direzione x raw return
+
+Caratteristiche della simulazione:
+
+- capitale fisso nominale per trade: 1000 EUR
+- durata fissa: 5 giorni
+- slippage opzionale, disattivato di default
+- nessun position sizing dinamico
+- nessuna gestione multi-trade complessa o overlay di portafoglio
+
+Il modello quindi e' prima di tutto un selettore di segnali. La parte execution e' volutamente semplice, per isolare la qualita' del pattern engine.
+
+19. AGGIORNAMENTO DELLA MEMORIA OPERATIVA
+
+Dopo ogni trade, il sistema aggiorna alcune memorie utili per le decisioni successive:
+
+- rolling_pnl: serve per il rolling win rate
+- regime_win_rates: serve a capire quanto una direzione e' stata efficace in un dato regime
+- past_trade_X e past_trade_y: servono ad addestrare il meta-ranker
+
+Quindi il sistema non e' statico: accumula esperienza man mano che avanza nel tempo.
+
+20. OUTPUT DEL LOG TRADE
+
+Per ogni trade salvato, vengono memorizzati molti attributi. Non solo il risultato economico, ma anche i parametri che spiegano perche' il trade e' stato preso.
+
+Campi principali:
+
+- data del segnale
+- pattern_length
+- direzione long/short
+- prezzo di ingresso e uscita
+- pnl
+- numero di occorrenze trovate
+- directional_consistency
+- dtw_compactness
+- edge_quality
+- mean_outcome
+- regime
+- confidenza del meta-ranker
+- embedding_id
+
+Questo e' molto importante per l'analisi ex post, perche' permette di capire se i trade migliori vengono da pattern piu' corti o piu' lunghi, da regimi specifici, da punteggi alti o da configurazioni particolari.
+
+21. REPORTING E VALUTAZIONE DELLA PERFORMANCE
+
+Una volta completato il backtest, il sistema produce statistiche aggregate e visualizzazioni.
+
+Metriche principali:
+
+- total_trades
+- win_rate
+- avg_pnl
+- max_drawdown
+- sharpe_ratio
+- calmar_ratio
+- avg_holding_days
+- most_used_pattern_length
+- trades_skipped_no_pattern
+- trades_skipped_low_confidence
+
+Queste metriche servono a separare tre livelli di lettura:
+
+- frequenza operativa: quanti trade vengono generati
+- qualita' media: win rate, average pnl, sharpe
+- severita' del rischio: max drawdown
+
+22. EQUITY CURVE E DRAWDOWN
+
+Il modulo di reporting costruisce una curva cumulata del PnL trade dopo trade. Da questa vengono derivate:
+
+- equity cumulata
+- running max
+- drawdown
+- rolling win rate su finestra di 20 trade
+
+La chart finale mostra:
+
+- pannello principale: cumulative PnL con aree di drawdown
+- pannello intermedio: rolling win rate
+- pannello inferiore: pattern length usata in ogni trade, colorata per direzione long o short
+
+Per una infografica questo e' molto utile, perche' lega direttamente comportamento economico, stabilita' del sistema e tipo di pattern utilizzato.
+
+23. INTERFACCIA WEB E PARAMETRIZZAZIONE
+
+Il sistema e' stato incapsulato in una web app Streamlit. L'interfaccia permette di scegliere:
+
+- ticker
+- data iniziale
+- lookback in giorni di calendario
+- uso di tutto lo storico disponibile
+- warmup bars
+
+L'interfaccia non cambia la logica del sistema: funge da orchestratore parametrico. In backend usa una request strutturata che passa al runner i parametri di esecuzione.
+
+Il runner:
+
+- scarica i dati del ticker scelto
+- costruisce le feature
+- filtra la finestra storica richiesta
+- applica eventuale override del warmup
+- esegue il backtest
+- restituisce trade, statistiche, figura equity e metadati della finestra usata
+
+24. VERIFICA VISIVA DELLA SIMILARITA' DEI PATTERN
+
+Oltre al backtest, il progetto ha una funzione diagnostica molto importante: la visualizzazione dei pattern simili.
+
+Per una data selezionata e una lunghezza pattern N:
+
+- si prende la finestra piu' recente che termina in quella data
+- si cerca nel passato il top dei match piu' simili
+- si estraggono i percorsi di prezzo dei match
+- si plottano insieme il pattern query e i pattern storici corrispondenti
+- si mostrano anche gli score di similarita'
+
+Questa funzione e' preziosa per due motivi:
+
+- consente una validazione qualitativa, non solo numerica
+- rende il sistema piu' spiegabile a un osservatore umano
+
+In un contesto di infografica, questo blocco puo' essere usato come elemento visivo forte: pattern attuale al centro, pattern storici simili ai lati, score di similarita' sotto.
+
+25. COSA RENDE IL SISTEMA DIVERSO DA UN MODELLO CLASSICO A REGOLE FISSE
+
+Questo trading system non e' basato su regole del tipo:
+
+- compra quando la media mobile incrocia
+- vendi quando RSI supera una soglia
+
+E' invece basato su un motore a memoria storica strutturata. Le decisioni emergono dalla combinazione di:
+
+- pattern geometry
+- ricorrenza statistica
+- coerenza post-pattern
+- contesto di regime
+- apprendimento supervisionato sul comportamento dei trade passati
+
+Quindi il sistema e' ibrido:
+
+- unsupervised nella costruzione degli embedding
+- similarity-based nella ricerca dei casi storici
+- statistical nella validazione dei risultati forward
+- supervised nel meta-ranking finale
+
+26. PUNTI DI FORZA DELLA LOGICA
+
+- approccio explainable: ogni trade nasce da pattern simili trovati nel passato
+- no-lookahead: il motore opera in logica temporale realistica
+- multi-scale: usa lunghezze pattern diverse
+- adattivita': ammorbidisce le soglie su storici brevi
+- robustezza operativa: esistono fallback se autoencoder o librerie falliscono
+- diagnostica visiva: i match storici possono essere ispezionati graficamente
+
+27. LIMITI STRUTTURALI DELLA LOGICA
+
+- l'execution e' volutamente semplice e non modella in dettaglio microstruttura, costi reali e sizing dinamico
+- la qualita' del segnale dipende dalla disponibilita' di match storici abbastanza omogenei
+- l'HMM riduce il regime a pochi stati latenti, quindi e' una semplificazione del contesto di mercato
+- il meta-ranker ha bisogno di accumulare trade per diventare informativo
+- una somiglianza elevata nello spazio embedding non garantisce automaticamente un vantaggio economico; per questo servono i filtri successivi
+
+28. FLUSSO OPERATIVO RIASSUNTO IN FORMA SEQUENZIALE
+
+Step 1. Scarica e allinea i dati OHLC.
+Step 2. Costruisci 5 feature normalizzate per ogni barra.
+Step 3. Attendi il warmup minimo per avere abbastanza storia.
+Step 4. Addestra o riaddestra gli autoencoder LSTM per le varie lunghezze pattern.
+Step 5. Trasforma tutte le finestre storiche in embedding.
+Step 6. Per il giorno corrente, costruisci il pattern query per ogni lunghezza N.
+Step 7. Cerca nel passato i pattern con cosine similarity alta.
+Step 8. Mantieni solo occorrenze sufficienti e non sovrapposte.
+Step 9. Analizza i percorsi forward dei match trovati.
+Step 10. Calcola directional consistency, DTW compactness, regime weight, edge quality e final score.
+Step 11. Costruisci il feature vector del candidato.
+Step 12. Valuta il candidato col meta-ranker se addestrato.
+Step 13. Se il candidato supera i filtri, apri un trade al giorno successivo.
+Step 14. Chiudi il trade dopo 5 giorni e registra il PnL.
+Step 15. Aggiorna la memoria statistica del sistema.
+Step 16. Ripeti il processo per tutta la serie storica.
+
+29. COME POTRESTI TRASFORMARLO IN INFOGRAFICA
+
+Se questo testo deve essere elaborato per generare una infografica, una struttura efficace potrebbe essere:
+
+Blocco A - Input
+OHLC -> Feature engineering -> Finestre temporali multi-lunghezza
+
+Blocco B - Pattern intelligence
+Finestre -> Autoencoder LSTM -> Embedding -> Similarity search storica
+
+Blocco C - Validazione statistica
+Match storici -> Forward paths -> Directional consistency + DTW compactness + Regime weight + Edge quality
+
+Blocco D - Decision engine
+Final score -> Meta-ranker LightGBM -> Long/Short/No trade
+
+Blocco E - Execution
+Entry next open -> Hold 5 giorni -> Exit close -> PnL fisso su 1000 EUR nominali
+
+Blocco F - Learning loop
+Trade outcomes -> Rolling win rate + regime win rates + training set meta-ranker
+
+Blocco G - Output
+Trade log + equity curve + drawdown + pattern similarity chart
+
+30. SINTESI CONCETTUALE FINALE
+
+Questo progetto e' un sistema di trading pattern-based che cerca analogie storiche fra configurazioni recenti e configurazioni passate, valuta se i casi simili hanno prodotto un comportamento forward coerente, filtra il segnale in base a qualita' statistica e regime di mercato, quindi esegue un trade semplice e misurabile in ottica walk-forward.
+
+Il suo valore principale non sta in una singola regola, ma nell'integrazione di quattro idee:
+
+- rappresentazione compressa dei pattern con deep learning
+- ricerca di analogie storiche con similarity search
+- validazione del pattern tramite criteri statistici e contestuali
+- selezione finale del trade tramite meta-apprendimento
+
+In termini semplici: il sistema osserva come il mercato si presenta oggi, cerca nel passato i casi piu' simili, controlla se quei casi hanno davvero avuto un seguito coerente e, solo se il vantaggio appare abbastanza pulito e ripetibile, apre un'operazione.
