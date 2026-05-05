@@ -19,6 +19,25 @@ np.random.seed(SEED)
 
 FEATURE_DIM = 5   # body, upper_wick, lower_wick, gap, rel_range (legacy; actual dim is dynamic)
 
+# PERF FIX 4A — auto-detect best available device
+def get_device() -> str:
+    if torch.cuda.is_available():
+        name = torch.cuda.get_device_name(0)
+        print(f"[PERF] GPU detected: {name} — using CUDA")
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        print("[PERF] Apple Silicon GPU detected — using MPS")
+        return "mps"
+    print("[PERF] No GPU detected — using CPU. Install CUDA PyTorch for 5-10x speedup.")
+    return "cpu"
+
+# PERF FIX 4D — scale hidden size with seq_len to avoid overparameterisation
+def _effective_hidden(seq_len: int, n_features: int) -> int:
+    return min(LSTM_HIDDEN, max(16, seq_len * n_features * 2))
+
+# Cap training windows to bound wall-clock time at large corpus sizes
+MAX_TRAIN_WINDOWS = 2000   # stride-sample when corpus exceeds this
+
 
 class SupervisedContrastiveLoss(nn.Module):
     """
@@ -119,22 +138,38 @@ def _build_windows(feat_array: np.ndarray, seq_len: int) -> np.ndarray:
 
 def train_autoencoder(feat_array: np.ndarray, seq_len: int,
                       device: str = "cpu",
-                      outcome_returns: np.ndarray | None = None) -> LSTMAutoencoder:
+                      outcome_returns: np.ndarray | None = None,
+                      is_retrain: bool = False) -> "LSTMAutoencoder":
     windows = _build_windows(feat_array, seq_len)
     min_windows = 10 + seq_len * 5
     if len(windows) < min_windows:
         raise ValueError(f"Too few windows ({len(windows)}) for seq_len={seq_len}")
 
     n_windows = len(windows)
+
+    # PERF FIX 4C — adaptive epochs: fewer for retrains, scale with corpus
     if n_windows < 50:
-        epochs = 20
+        epochs = 15
     elif n_windows < 100:
-        epochs = 40
+        epochs = 25
+    elif is_retrain:
+        epochs = 20   # retrains need fewer epochs — model already has good weights
     else:
         epochs = AUTOENCODER_EPOCHS
 
-    input_dim = feat_array.shape[1]  # dynamic — adapts to any feature count
-    model = LSTMAutoencoder(seq_len, input_dim=input_dim).to(device)
+    # PERF FIX 4 — cap training windows via stride sampling to bound wall-clock time
+    if n_windows > MAX_TRAIN_WINDOWS:
+        stride = n_windows // MAX_TRAIN_WINDOWS
+        windows = windows[::stride][:MAX_TRAIN_WINDOWS]
+        if outcome_returns is not None and len(outcome_returns) == n_windows:
+            outcome_returns = outcome_returns[::stride][:MAX_TRAIN_WINDOWS]
+        n_windows = len(windows)
+
+    input_dim = feat_array.shape[1]
+    # PERF FIX 4D — scale hidden size with seq_len
+    eff_hidden = _effective_hidden(seq_len, input_dim)
+
+    model = LSTMAutoencoder(seq_len, input_dim=input_dim, hidden=eff_hidden).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=AUTOENCODER_LR)
     mse_criterion = nn.MSELoss()
 

@@ -18,7 +18,7 @@ from config import (
     MATCH_VALIDATION_SPLIT, MATCH_VALIDATION_MIN_BARS,
     SL_MULT, TP_MULT, HMM_LOOKBACK,
 )
-from autoencoder import train_autoencoder, compute_embeddings, _build_windows
+from autoencoder import train_autoencoder, compute_embeddings, _build_windows, get_device
 from patterns import (
     find_occurrences, collect_forward_paths, cosine_similarity_matrix,
     score_pattern, fit_hmm,
@@ -31,8 +31,37 @@ warnings.filterwarnings("ignore")
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
-DEVICE = "cpu"
-MAX_DTW_PATHS = 40   # cap occurrences for DTW
+DEVICE = get_device()   # PERF FIX 4A — auto-detect GPU/CPU
+MAX_DTW_PATHS = 25   # PERF FIX 1: hard cap; was 40
+
+# PERF FIX 3 — FAISS startup check with loud warning
+try:
+    import faiss as _faiss_test
+    _faiss_test.IndexFlatIP(4)
+    FAISS_ACTIVE = True
+    print("[PERF] FAISS is ACTIVE — using approximate nearest neighbor search")
+except Exception as _faiss_err:
+    FAISS_ACTIVE = False
+    print(f"[PERF] WARNING: FAISS not available ({_faiss_err}). "
+          f"Falling back to O(N\u00b2) linear search. "
+          f"Install faiss-cpu for 10-50x speedup.")
+
+_faiss_fallback_warned: set = set()
+
+
+def _greedy_nonoverlap(indices: np.ndarray, seq_len: int,
+                       max_results: int = 200) -> list:
+    """PERF FIX 3 — Vectorized non-overlap filter. O(N log N) vs O(N\u00b2)."""
+    if len(indices) == 0:
+        return []
+    indices_sorted = np.sort(indices)
+    selected = [int(indices_sorted[0])]
+    for idx in indices_sorted[1:]:
+        if int(idx) - selected[-1] >= seq_len:
+            selected.append(int(idx))
+            if len(selected) >= max_results:
+                break
+    return selected
 
 
 def _emit_progress(progress_callback: Callable[[dict], None] | None, **payload):
@@ -251,12 +280,41 @@ def _get_current_regime_cached(hmm_model, hmm_features: np.ndarray,
         return 0
 
 
-# ─── Embedding Cache ────────────────────────────────────────────────────────
+_REGIME_UPDATE_EVERY = 20   # PERF FIX 5: only re-run HMM predict every N bars
+
+
+def precompute_regimes(hmm_model, hmm_features: np.ndarray,
+                       n_bars: int, lookback: int = HMM_LOOKBACK) -> np.ndarray:
+    """
+    PERF FIX 5 — Batch-compute regime labels for all bars in one pass.
+    HMM predict() is only called every REGIME_UPDATE_EVERY bars instead of every bar.
+    Reduces 8372 × 252-row HMM calls to 8372/20 ≈ 419 calls.
+    Returns: int32 array of shape (n_bars,) with regime label per bar.
+    """
+    regimes = np.zeros(n_bars, dtype=np.int32)
+    if hmm_model is None or len(hmm_features) == 0:
+        return regimes
+    current_regime = 0
+    for bar_idx in range(lookback + 1, n_bars):
+        if bar_idx % _REGIME_UPDATE_EVERY == 0:
+            try:
+                end_idx = min(bar_idx - 1, len(hmm_features))
+                feat_slice = hmm_features[:end_idx]
+                if len(feat_slice) >= 2:
+                    feat_scaled = hmm_model._scaler.transform(feat_slice[-lookback:])
+                    states = hmm_model.predict(feat_scaled)
+                    current_regime = int(states[-1])
+            except Exception:
+                pass
+        regimes[bar_idx] = current_regime
+    return regimes
 
 class EmbeddingCache:
     """
     On retrain: builds corpus embeddings + precomputes query embeddings for
     the next RETRAIN_EVERY_DAYS bars in a single batched forward pass.
+    PERF FIX 4B: tracks last-trained corpus size per seq_len to skip retrains
+    when corpus grew < 5% (saves ~80% of retrains for large corpora).
     """
     def __init__(self):
         self.models: dict = {}        # seq_len -> model
@@ -265,51 +323,78 @@ class EmbeddingCache:
         self.is_fallback: dict = {}
         self.faiss_indexes: dict = {} # seq_len -> FAISSIndex (when faiss-cpu available)
         self.last_retrain_date = None
+        self._last_train_size: dict = {}  # seq_len -> n_windows at last actual train
+
+    def _should_retrain_seq(self, seq_len: int, current_n_windows: int) -> bool:
+        """PERF FIX 4B: skip per-seq_len retrain if corpus grew < 5%."""
+        last = self._last_train_size.get(seq_len, 0)
+        if last == 0:
+            return True
+        growth = (current_n_windows - last) / max(last, 1)
+        return growth >= 0.05
 
     def retrain(self, feat_array: np.ndarray, retrain_date,
                 next_n_bars: int, total_feat_array: np.ndarray,
                 close_arr: np.ndarray | None = None):
         """
         feat_array: rows 0..bar_idx-1 (corpus)
-        next_n_bars: how many future bars to precompute queries for
-        total_feat_array: full feature array (rows 0..n_bars-1) — read-only for query windows
-        close_arr: full close price array — used to compute outcome_returns for contrastive loss
+        PERF FIX 4B: skips per-seq_len retrain when corpus grew < 5%.
+        PERF FIX 4C: uses is_retrain=True for subsequent trains (20 epochs).
         """
         self.last_retrain_date = retrain_date
         retrain_size = len(feat_array)
         future_bar_indices = list(range(retrain_size, retrain_size + next_n_bars + 1))
 
-        # Compute per-seq_len outcome_returns for contrastive loss (no-lookahead safe)
+        # Vectorized outcome_returns via numpy (no Python loop)
         outcome_returns_map = {}
         if close_arr is not None:
             n_close = len(close_arr)
             for seq_len in PATTERN_LENGTHS:
                 n_windows = max(0, retrain_size - seq_len + 1)
-                ors = np.full(n_windows, np.nan, dtype=np.float64)
-                for i in range(n_windows):
-                    outcome_bar = i + seq_len
-                    if outcome_bar + FORWARD_WINDOW < n_close:
-                        c0 = close_arr[outcome_bar]
-                        c1 = close_arr[outcome_bar + FORWARD_WINDOW]
-                        if c0 > 0:
-                            ors[i] = (c1 - c0) / c0
-                outcome_returns_map[seq_len] = ors
+                if n_windows > 0:
+                    ob = np.arange(seq_len, seq_len + n_windows)        # entry bars
+                    valid = (ob + FORWARD_WINDOW) < n_close
+                    ors = np.full(n_windows, np.nan, dtype=np.float64)
+                    c0 = close_arr[ob[valid]]
+                    c1 = close_arr[ob[valid] + FORWARD_WINDOW]
+                    ors[valid] = (c1 - c0) / np.where(c0 > 0, c0, 1.0)
+                    outcome_returns_map[seq_len] = ors
 
         for seq_len in PATTERN_LENGTHS:
-            try:
-                model = train_autoencoder(
-                    feat_array, seq_len, device=DEVICE,
-                    outcome_returns=outcome_returns_map.get(seq_len),
-                )
-                embs = compute_embeddings(model, feat_array, seq_len, device=DEVICE)
-                self.models[seq_len] = model
-                self.corpus[seq_len] = embs
-                self.is_fallback[seq_len] = False
-            except Exception as e:
-                _log_fallback(f"[{retrain_date}] AE train failed seq_len={seq_len}: {e}")
-                self.models[seq_len] = None
-                self.corpus[seq_len] = _discrete_embed_all(feat_array, seq_len)
-                self.is_fallback[seq_len] = True
+            n_windows = max(0, retrain_size - seq_len + 1)
+            is_retrain_flag = self._last_train_size.get(seq_len, 0) > 0
+
+            # PERF FIX 4B — skip if corpus grew < 5% since last actual train
+            if is_retrain_flag and not self._should_retrain_seq(seq_len, n_windows):
+                # Carry forward existing model; only rebuild FAISS + query cache
+                print(f"[PERF] Skipping LSTM retrain seq_len={seq_len} "
+                      f"(corpus grew < 5%: {self._last_train_size.get(seq_len,0)} -> {n_windows})")
+                # Re-embed full corpus with existing model (fast — no backprop)
+                if self.models.get(seq_len) is not None and not self.is_fallback.get(seq_len, True):
+                    try:
+                        new_embs = compute_embeddings(
+                            self.models[seq_len], feat_array, seq_len, device=DEVICE)
+                        self.corpus[seq_len] = new_embs
+                    except Exception:
+                        pass  # keep old corpus
+            else:
+                try:
+                    model = train_autoencoder(
+                        feat_array, seq_len, device=DEVICE,
+                        outcome_returns=outcome_returns_map.get(seq_len),
+                        is_retrain=is_retrain_flag,
+                    )
+                    embs = compute_embeddings(model, feat_array, seq_len, device=DEVICE)
+                    self.models[seq_len] = model
+                    self.corpus[seq_len] = embs
+                    self.is_fallback[seq_len] = False
+                    self._last_train_size[seq_len] = n_windows
+                except Exception as e:
+                    _log_fallback(f"[{retrain_date}] AE train failed seq_len={seq_len}: {e}")
+                    self.models[seq_len] = None
+                    self.corpus[seq_len] = _discrete_embed_all(feat_array, seq_len)
+                    self.is_fallback[seq_len] = True
+                    self._last_train_size[seq_len] = n_windows
 
             # Build FAISS index for fast corpus search
             if _FAISS_AVAILABLE:
@@ -320,16 +405,12 @@ class EmbeddingCache:
                     self.faiss_indexes[seq_len] = faiss_idx
                     print(f"[FAISS] seq_len={seq_len}: index built with {len(_faiss_embs)} vectors")
 
-            # Precompute queries for the next cycle (batched)
+            # Precompute queries for next cycle (batched single forward pass)
             qcache = _batch_embed(
                 self.models[seq_len], total_feat_array, seq_len,
                 self.is_fallback[seq_len], future_bar_indices
             )
-            # Also store queries for bars in corpus (the last window)
-            # so bar_idx = retrain_size is handled
             corpus = self.corpus[seq_len]
-            # corpus[i] = window starting at i; query for bar_idx = i + seq_len
-            # so corpus[-1] = query for bar_idx = retrain_size
             if len(corpus) > 0:
                 qcache[retrain_size] = corpus[-1]
             self.query_cache[seq_len] = qcache
@@ -406,6 +487,8 @@ def run_backtest(
     past_trade_X = []
     past_trade_y = []
     rolling_pnl = []
+    # PERF FIX 5: precomputed regime array; updated after each retrain
+    regimes_arr = np.zeros(n_bars, dtype=np.int32)
 
     effective_warmup = min(WARMUP_BARS, max(20, n_bars // 8))
     total_iterations = max(0, n_bars - FORWARD_WINDOW - 1 - effective_warmup)
@@ -470,6 +553,9 @@ def run_backtest(
             )
             last_retrain_calendar = today
             hmm_model = fit_hmm(close_arr[:bar_idx])
+            # PERF FIX 5: rebuild regime array for all bars after HMM refit
+            regimes_arr = precompute_regimes(
+                hmm_model, hmm_features, n_bars, lookback=HMM_LOOKBACK)
             if len(past_trade_X) >= META_RANKER_MIN_TRADES:
                 meta.fit(
                     np.array(past_trade_X, dtype=np.float32),
@@ -492,7 +578,7 @@ def run_backtest(
             )
 
         # ── Regime & rolling win-rate ────────────────────────────────────
-        regime = _get_current_regime_cached(hmm_model, hmm_features, bar_idx)
+        regime = int(regimes_arr[bar_idx])   # PERF FIX 5: precomputed array
         rwr = float(np.mean([p > 0 for p in rolling_pnl[-20:]])) if rolling_pnl else 0.5
         current_atr = float(feat_arr[bar_idx, 4])
         dow = today.dayofweek
