@@ -1,5 +1,4 @@
 streamlit
-yfinance
 matplotlib
 pandas
 numpy
@@ -11,3 +10,4 @@ dtaidistance
 scikit-learn
 tqdm
 faiss-cpu
+-e ../global_data_storage
