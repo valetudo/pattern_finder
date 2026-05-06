@@ -29,6 +29,10 @@ env/
 *.docx
 *.xlsx
 *.db
+data_cache*.pkl
+vix_cache*.pkl
+market_data.db
+# data now lives in market-data-hub
 
 # Runtime outputs (reproduced on each run)
 fallback_log.txt

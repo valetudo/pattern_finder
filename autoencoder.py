@@ -159,8 +159,12 @@ def fallback_embedding(window: np.ndarray,
 def train_autoencoder(feat_array: np.ndarray, seq_len: int,
                       device: str = "cpu",
                       outcome_returns: np.ndarray | None = None,
-                      is_retrain: bool = False) -> "LSTMAutoencoder":
-    windows = _build_windows(feat_array, seq_len)
+                      is_retrain: bool = False,
+                      n_features: int | None = None):
+    if feat_array.ndim == 3:
+        windows = feat_array.astype(np.float32)
+    else:
+        windows = _build_windows(feat_array, seq_len)
     min_windows = max(8, seq_len * 2 + 4)  # BUG4_FIX: was 10+seq_len*5 (too high for early warmup)
     if len(windows) < min_windows:
         raise ValueError(f"Too few windows ({len(windows)}) for seq_len={seq_len}")
@@ -185,10 +189,13 @@ def train_autoencoder(feat_array: np.ndarray, seq_len: int,
             outcome_returns = outcome_returns[::stride][:MAX_TRAIN_WINDOWS]
         n_windows = len(windows)
 
-    input_dim = feat_array.shape[1]
+    input_dim = windows.shape[2]
     # PERF FIX 4D — scale hidden size with seq_len
     eff_hidden = _effective_hidden(seq_len, input_dim)
 
+    # Reproducible model init: reset seed keyed on seq_len so every run produces identical weights
+    torch.manual_seed(SEED + seq_len)
+    np.random.seed(SEED + seq_len)
     model = LSTMAutoencoder(seq_len, input_dim=input_dim, hidden=eff_hidden).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=AUTOENCODER_LR)
     mse_criterion = nn.MSELoss()
@@ -254,6 +261,10 @@ def train_autoencoder(feat_array: np.ndarray, seq_len: int,
             optimizer.step()
 
     model.eval()
+    if n_features is not None:
+        with torch.no_grad():
+            emb_tensor = model.encode(torch.from_numpy(windows).to(device))
+        return model, emb_tensor.detach().cpu().numpy()
     return model
 
 

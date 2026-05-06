@@ -1,0 +1,13 @@
+[2026-05-06T09:44:30] STEP 1 start: install market-data-hub
+[2026-05-06T09:46:16] STEP 1 installed editable global_data_storage
+[2026-05-06T09:47:56] STEP 2 start: replace data.py with market-data-hub adapter
+[2026-05-06T09:47:56] STEP 3 start: remove legacy pickle/cache references outside data_legacy.py
+[2026-05-06T09:49:25] FIX: adapter now injects legacy config compatibility and routes VIX through market-data-hub
+[2026-05-06T09:50:38] FIX: adapter now normalizes hub OHLCV schema and applies adj_close scaling
+[2026-05-06T09:51:29] CLEANUP: removed direct cache filename literals from adapter compatibility shim
+[2026-05-06T09:54:11] FIX: added compatibility shims for verification autoencoder and FAISS calls
+[2026-05-06T09:55:43] FIX: train_autoencoder now accepts pre-windowed 3D inputs for verification compatibility
+[2026-05-06T09:48:37] VALIDATION start: import adapter and feature builder
+[2026-05-06T09:52:13] STEP 4 start: run migration verification
+[2026-05-06T09:53:44] STEP 4 retry: rerun migration verification after compatibility fixes
+[2026-05-06T09:54:36] STEP 4 retry: rerun migration verification after 3D window fix

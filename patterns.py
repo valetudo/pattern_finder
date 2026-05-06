@@ -91,9 +91,9 @@ class FAISSIndex:
     Falls back silently to find_occurrences() if faiss-cpu is not installed.
     """
 
-    def __init__(self):
+    def __init__(self, dim: int | None = None):
         self._index = None
-        self._dim: int | None = None
+        self._dim: int | None = dim
 
     def build(self, embeddings: np.ndarray, ids: np.ndarray) -> None:
         if not _FAISS_AVAILABLE or len(embeddings) == 0:
@@ -113,7 +113,7 @@ class FAISSIndex:
         self._index.add_with_ids(vecs, ids.astype(np.int64))
 
     def search(self, query_emb: np.ndarray, k: int, threshold: float,
-               max_idx: int, seq_len: int) -> list[int]:
+               max_idx: int | None = None, seq_len: int = 1) -> list[int]:
         """Return non-overlapping bar indices sorted by position."""
         if not _FAISS_AVAILABLE or self._index is None:
             return []
@@ -126,6 +126,8 @@ class FAISSIndex:
         D, I = self._index.search(q, actual_k)
         sims = D[0]
         idxs = I[0]
+        if max_idx is None:
+            max_idx = np.iinfo(np.int64).max
         mask = (sims >= threshold) & (idxs >= 0) & (idxs < max_idx)
         sims = sims[mask]
         idxs = idxs[mask]
